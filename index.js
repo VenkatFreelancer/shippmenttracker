@@ -4,6 +4,8 @@ const app = express();
 
 app.use(express.json());
 
+app.get('/track', async (req, res) => {
+
 // API endpoint: GET /track?trackingNumber=803315047
 app.get('/track', async (req, res) => {
   const trackingNumber = req.query.trackingNumber;
@@ -111,7 +113,8 @@ app.get('/track', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`✅ API is live at http://0.0.0.0:${PORT}`));
+});
 
-
+app.listen(port, '0.0.0.0', () => {
+    console.log(`✅ API is live at http://0.0.0.0:${port}`);
+});
