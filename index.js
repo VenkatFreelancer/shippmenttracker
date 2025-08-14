@@ -8,11 +8,18 @@ const PORT = process.env.PORT || 10000;
 // Simple health check
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
-// Helper function to launch the browser
-const browser = await puppeteer.launch({
-  headless: true,
-  executablePath: '/usr/bin/google-chrome', // Or whatever is in your container
-});
+// Launch browser helper
+async function launchBrowser() {
+  return await puppeteer.launch({
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath:
+      typeof chromium.executablePath === "function"
+        ? await chromium.executablePath()
+        : chromium.executablePath,
+    headless: chromium.headless,
+  });
+}
 
 app.get("/track", async (req, res) => {
   const trackingNumber = req.query.trackingNumber;
