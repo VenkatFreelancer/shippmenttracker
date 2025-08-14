@@ -1,12 +1,22 @@
 import express from "express";
-import chromium from "chrome-aws-lambda";
-import fs from "fs";
+import chromium from "@sparticuz/chrome-aws-lambda";
+import puppeteer from "puppeteer-core";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
 // Simple health check
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// Helper function to launch the browser
+async function launchBrowser() {
+  return puppeteer.launch({
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath: await chromium.executablePath(),
+    headless: chromium.headless,
+  });
+}
 
 app.get("/track", async (req, res) => {
   const trackingNumber = req.query.trackingNumber;
@@ -16,15 +26,7 @@ app.get("/track", async (req, res) => {
 
   let browser;
   try {
-    const executablePath = await chromium.executablePath;
-
-    browser = await chromium.puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath,
-      headless: chromium.headless,
-    });
-
+    browser = await launchBrowser();
     const page = await browser.newPage();
 
     // Login
@@ -62,7 +64,9 @@ app.get("/track", async (req, res) => {
         const headerCells = table.querySelectorAll("tr:first-child td");
         let statusColIndex = -1;
         headerCells.forEach((cell, i) => {
-          if (cell.textContent.trim().toLowerCase() === "status") statusColIndex = i;
+          if (cell.textContent.trim().toLowerCase() === "status") {
+            statusColIndex = i;
+          }
         });
         if (statusColIndex === -1) return null;
         const dataRow = table.querySelector("tr:nth-child(2)");
