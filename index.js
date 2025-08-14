@@ -12,7 +12,7 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 async function launchBrowser() {
   let executablePath;
 
-  // Always await if it's a function (AWS/Render environments)
+  // ✅ Always await chromium.executablePath() — it returns a Promise
   if (typeof chromium.executablePath === "function") {
     executablePath = await chromium.executablePath();
   } else {
@@ -49,64 +49,55 @@ app.get("/track", async (req, res) => {
     browser = await launchBrowser();
     const page = await browser.newPage();
 
-    // Login
+    // Login page — use 'networkidle2' for faster readiness
     await page.goto("https://ats.ca/Login?ReturnUrl=%2fprotected%2fATSTrack", {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
+      waitUntil: "networkidle2",
+      timeout: 30000,
     });
 
-    await page.waitForSelector("#ctl10_txtUser", { timeout: 30000 });
-    await page.type("#ctl10_txtUser", "pharplanet", { delay: 50 });
-    await page.type("#ctl10_txtPassword", "ships0624", { delay: 50 });
+    await page.type("#ctl10_txtUser", "pharplanet", { delay: 30 });
+    await page.type("#ctl10_txtPassword", "ships0624", { delay: 30 });
 
     await Promise.all([
       page.click("#ctl10_cmdSubmit"),
-      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 60000 }),
+      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 }),
     ]);
 
-    // Track shipment
+    // Tracking page
     await page.goto("https://ats.ca/protected/ATSTrack", {
-      waitUntil: "domcontentloaded",
+      waitUntil: "networkidle2",
+      timeout: 20000,
     });
-    await page.waitForSelector("#txtShip", { timeout: 20000 });
-    await page.type("#txtShip", trackingNumber, { delay: 50 });
+    await page.type("#txtShip", trackingNumber, { delay: 30 });
 
     await page.evaluate(() => __doPostBack("btnSearchShip", ""));
-    await new Promise((r) => setTimeout(r, 3000));
+    await page.waitForTimeout(2000); // small wait, not 3+ seconds
 
     let statusText = null;
 
-    const tableExists = await page.$("#dgPOD");
-    if (tableExists) {
+    if (await page.$("#dgPOD")) {
       statusText = await page.evaluate(() => {
         const table = document.querySelector("#dgPOD");
         if (!table) return null;
-        const headerCells = table.querySelectorAll("tr:first-child td");
-        let statusColIndex = -1;
-        headerCells.forEach((cell, i) => {
-          if (cell.textContent.trim().toLowerCase() === "status") {
-            statusColIndex = i;
-          }
-        });
-        if (statusColIndex === -1) return null;
+        const headers = Array.from(table.querySelectorAll("tr:first-child td"));
+        const statusIndex = headers.findIndex(
+          (cell) => cell.textContent.trim().toLowerCase() === "status"
+        );
+        if (statusIndex === -1) return null;
         const dataRow = table.querySelector("tr:nth-child(2)");
-        const dataCells = dataRow.querySelectorAll("td");
-        return dataCells[statusColIndex]?.textContent.trim() || null;
+        return dataRow?.querySelectorAll("td")[statusIndex]?.textContent.trim() || null;
       });
-    } else {
-      const errorTable = await page.$("table");
-      if (errorTable) {
-        statusText = await page.evaluate(() => {
-          const rows = Array.from(document.querySelectorAll("table tr"));
-          for (const row of rows) {
-            const cells = row.querySelectorAll("td");
-            if (cells.length > 1 && /^\d{9}$/.test(cells[0].innerText.trim())) {
-              return cells[1].innerText.trim();
-            }
+    } else if (await page.$("table")) {
+      statusText = await page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll("table tr"));
+        for (const row of rows) {
+          const cells = row.querySelectorAll("td");
+          if (cells.length > 1 && /^\d{9}$/.test(cells[0].innerText.trim())) {
+            return cells[1].innerText.trim();
           }
-          return "No status or error found";
-        });
-      }
+        }
+        return "No status or error found";
+      });
     }
 
     await browser.close();
@@ -114,7 +105,7 @@ app.get("/track", async (req, res) => {
   } catch (err) {
     if (browser) await browser.close();
     console.error("Error:", err);
-    res.status(500).json({ error: String(err.message || err) });
+    res.status(500).json({ error: err.message || String(err) });
   }
 });
 
