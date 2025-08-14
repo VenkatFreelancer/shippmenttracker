@@ -5,18 +5,23 @@ import puppeteer from "puppeteer-core";
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Simple health check
+// Health check
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
-// Launch browser helper
+// Browser launcher
 async function launchBrowser() {
+  let executablePath;
+
+  if (typeof chromium.executablePath === "function") {
+    executablePath = await chromium.executablePath();
+  } else {
+    executablePath = chromium.executablePath || "/usr/bin/google-chrome";
+  }
+
   return await puppeteer.launch({
     args: chromium.args,
     defaultViewport: chromium.defaultViewport,
-    executablePath:
-      typeof chromium.executablePath === "function"
-        ? await chromium.executablePath()
-        : chromium.executablePath,
+    executablePath,
     headless: chromium.headless,
   });
 }
