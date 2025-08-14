@@ -1,10 +1,9 @@
-const express = require('express');
-const puppeteer = require('puppeteer');
+import express from 'express';
+import puppeteer, { executablePath } from 'puppeteer';
 
 const app = express();
 app.use(express.json());
 
-// API endpoint: GET /track?trackingNumber=803315047
 app.get('/track', async (req, res) => {
   const trackingNumber = req.query.trackingNumber;
 
@@ -16,7 +15,8 @@ app.get('/track', async (req, res) => {
   try {
     browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      executablePath: executablePath(), // ensures correct Chrome path on Render
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
 
     const page = await browser.newPage();
@@ -24,7 +24,7 @@ app.get('/track', async (req, res) => {
     // 1. Go to login page
     await page.goto('https://ats.ca/Login?ReturnUrl=%2fprotected%2fATSTrack', {
       waitUntil: 'domcontentloaded',
-      timeout: 60000,
+      timeout: 60000
     });
 
     // 2. Fill login form
@@ -35,12 +35,12 @@ app.get('/track', async (req, res) => {
     // 3. Submit and wait for redirect
     await Promise.all([
       page.click('#ctl10_cmdSubmit'),
-      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }),
+      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 })
     ]);
 
     // 4. Go to tracking page
     await page.goto('https://ats.ca/protected/ATSTrack', {
-      waitUntil: 'domcontentloaded',
+      waitUntil: 'domcontentloaded'
     });
 
     // 5. Input tracking number
@@ -101,7 +101,7 @@ app.get('/track', async (req, res) => {
 
     res.json({
       trackingNumber,
-      status: statusText || 'Not found',
+      status: statusText || 'Not found'
     });
 
   } catch (error) {
