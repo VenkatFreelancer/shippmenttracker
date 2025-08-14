@@ -62,7 +62,7 @@ app.get("/track", async (req, res) => {
     console.log("Resolved Chrome path:", executablePath);
 
     browser = await puppeteer.launch({
-      headless: true,
+      headless: "new",
       executablePath,
       args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
