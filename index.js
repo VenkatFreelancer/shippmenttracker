@@ -12,13 +12,25 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 async function launchBrowser() {
   let executablePath;
 
+  // Always await if it's a function (AWS/Render environments)
   if (typeof chromium.executablePath === "function") {
     executablePath = await chromium.executablePath();
   } else {
-    executablePath = chromium.executablePath || "/usr/bin/google-chrome";
+    executablePath = chromium.executablePath;
   }
 
-  return await puppeteer.launch({
+  // Local dev fallback
+  if (!executablePath) {
+    if (process.platform === "win32") {
+      executablePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+    } else if (process.platform === "darwin") {
+      executablePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    } else {
+      executablePath = "/usr/bin/google-chrome";
+    }
+  }
+
+  return puppeteer.launch({
     args: chromium.args,
     defaultViewport: chromium.defaultViewport,
     executablePath,
