@@ -9,13 +9,14 @@ const PORT = process.env.PORT || 10000;
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 // Helper function to launch the browser
-async function launchBrowser() {
-  return puppeteer.launch({
+export async function launchBrowser() {
+  const browser = await puppeteer.launch({
     args: chromium.args,
     defaultViewport: chromium.defaultViewport,
-    executablePath: await chromium.executablePath(),
+    executablePath: await chromium.executablePath(), // v17+
     headless: chromium.headless,
   });
+  return browser;
 }
 
 app.get("/track", async (req, res) => {
