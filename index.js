@@ -1,55 +1,13 @@
 import express from "express";
-import puppeteer from "puppeteer";
+import chromium from "chrome-aws-lambda";
 import fs from "fs";
-import path from "path";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// --- util: locate the Chromium binary inside the cache dir or fallbacks
-function findChrome() {
-  const candidates = [
-    process.env.PUPPETEER_EXECUTABLE_PATH,
-    typeof puppeteer.executablePath === "function" ? puppeteer.executablePath() : null,
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser"
-  ].filter(Boolean);
-
-  for (const p of candidates) {
-    if (p && fs.existsSync(p)) return p;
-  }
-
-  const cacheDir = process.env.PUPPETEER_CACHE_DIR || "/opt/render/.cache/puppeteer";
-  if (fs.existsSync(cacheDir)) {
-    const walk = (dir) => {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      for (const e of entries) {
-        const full = path.join(dir, e.name);
-        if (e.isDirectory()) {
-          const maybe = walk(full);
-          if (maybe) return maybe;
-        } else if (e.isFile() && (e.name === "chrome" || e.name === "chromium")) {
-          return full;
-        }
-      }
-      return null;
-    };
-    const found = walk(cacheDir);
-    if (found) return found;
-  }
-
-  throw new Error(
-    `Chrome not found. Checked candidates: ${candidates.join(
-      ", "
-    )} and cacheDir: ${process.env.PUPPETEER_CACHE_DIR || "/opt/render/.cache/puppeteer"}`
-  );
-}
-
-// Simple health check so you can see if the server is up
+// Simple health check
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
-// ---- YOUR API ----
 app.get("/track", async (req, res) => {
   const trackingNumber = req.query.trackingNumber;
   if (!trackingNumber) {
@@ -58,21 +16,21 @@ app.get("/track", async (req, res) => {
 
   let browser;
   try {
-    const executablePath = findChrome();
-    console.log("Resolved Chrome path:", executablePath);
+    const executablePath = await chromium.executablePath;
 
-    browser = await puppeteer.launch({
-      headless: "new",
+    browser = await chromium.puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
       executablePath,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+      headless: chromium.headless,
     });
 
     const page = await browser.newPage();
 
-    // 1) Login
+    // Login
     await page.goto("https://ats.ca/Login?ReturnUrl=%2fprotected%2fATSTrack", {
       waitUntil: "domcontentloaded",
-      timeout: 60000
+      timeout: 60000,
     });
 
     await page.waitForSelector("#ctl10_txtUser", { timeout: 30000 });
@@ -81,20 +39,17 @@ app.get("/track", async (req, res) => {
 
     await Promise.all([
       page.click("#ctl10_cmdSubmit"),
-      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 60000 })
+      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 60000 }),
     ]);
 
-    // 2) Track
-    await page.goto("https://ats.ca/protected/ATSTrack", { waitUntil: "domcontentloaded" });
+    // Track shipment
+    await page.goto("https://ats.ca/protected/ATSTrack", {
+      waitUntil: "domcontentloaded",
+    });
     await page.waitForSelector("#txtShip", { timeout: 20000 });
     await page.type("#txtShip", trackingNumber, { delay: 50 });
 
-    await page.evaluate(() => {
-      // ASP.NET postback
-      __doPostBack("btnSearchShip", "");
-    });
-
-    // Wait a bit for results to render
+    await page.evaluate(() => __doPostBack("btnSearchShip", ""));
     await new Promise((r) => setTimeout(r, 3000));
 
     let statusText = null;
@@ -115,7 +70,6 @@ app.get("/track", async (req, res) => {
         return dataCells[statusColIndex]?.textContent.trim() || null;
       });
     } else {
-      // Label created / not picked up yet
       const errorTable = await page.$("table");
       if (errorTable) {
         statusText = await page.evaluate(() => {
