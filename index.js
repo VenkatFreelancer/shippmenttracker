@@ -1,7 +1,7 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
-const app = express();
 
+const app = express();
 app.use(express.json());
 
 // API endpoint: GET /track?trackingNumber=803315047
@@ -15,7 +15,7 @@ app.get('/track', async (req, res) => {
   let browser;
   try {
     browser = await puppeteer.launch({
-      headless: 'new',
+      headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
 
@@ -64,19 +64,19 @@ app.get('/track', async (req, res) => {
         const table = document.querySelector('#dgPOD');
         if (!table) return null;
 
-        const headerCells = table.querySelectorAll("tr:first-child td");
+        const headerCells = table.querySelectorAll('tr:first-child td');
         let statusColIndex = -1;
 
         headerCells.forEach((cell, index) => {
-          if (cell.textContent.trim().toLowerCase() === "status") {
+          if (cell.textContent.trim().toLowerCase() === 'status') {
             statusColIndex = index;
           }
         });
 
         if (statusColIndex === -1) return null;
 
-        const dataRow = table.querySelector("tr:nth-child(2)");
-        const dataCells = dataRow.querySelectorAll("td");
+        const dataRow = table.querySelector('tr:nth-child(2)');
+        const dataCells = dataRow.querySelectorAll('td');
 
         return dataCells[statusColIndex]?.textContent.trim() || null;
       });
@@ -113,5 +113,5 @@ app.get('/track', async (req, res) => {
 
 const port = process.env.PORT || 8080;
 app.listen(port, '0.0.0.0', () => {
-    console.log(`✅ API is live at http://0.0.0.0:${port}`);
+  console.log(`✅ API is live at http://0.0.0.0:${port}`);
 });
