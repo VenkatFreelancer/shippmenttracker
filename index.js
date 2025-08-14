@@ -10,8 +10,10 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 async function launchBrowser() {
   let executablePath;
 
-  // Always await in case it's a Promise
-  if (typeof chromium.executablePath === "function") {
+  // Render (or any non-Lambda Linux) → use chromium binary from apt
+  if (process.env.RENDER) {
+    executablePath = "/usr/bin/chromium-browser"; // Installed via apt on Render
+  } else if (typeof chromium.executablePath === "function") {
     executablePath = await chromium.executablePath();
   } else if (chromium.executablePath instanceof Promise) {
     executablePath = await chromium.executablePath;
@@ -19,7 +21,7 @@ async function launchBrowser() {
     executablePath = chromium.executablePath;
   }
 
-  // Fallback for local development
+  // Local development fallback
   if (!executablePath) {
     if (process.platform === "win32") {
       executablePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
@@ -68,7 +70,7 @@ app.get("/track", async (req, res) => {
     await page.type("#txtShip", trackingNumber, { delay: 50 });
 
     await page.evaluate(() => __doPostBack("btnSearchShip", ""));
-    await new Promise(r => setTimeout(r, 3000));
+    await page.waitForTimeout(3000);
 
     let statusText = null;
     const tableExists = await page.$("#dgPOD");
