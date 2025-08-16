@@ -27,7 +27,35 @@ async function launchBrowser() {
     browserConfig.args.push('--single-process');
   }
 
-  return await puppeteer.launch(browserConfig);
+  try {
+    return await puppeteer.launch(browserConfig);
+  } catch (error) {
+    console.log('Failed to launch with default config, trying with executablePath...');
+    
+    // Try to find Chrome executable path on the system
+    const possiblePaths = [
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+      '/opt/google/chrome/chrome'
+    ];
+    
+    for (const path of possiblePaths) {
+      try {
+        const fs = await import('fs');
+        if (fs.existsSync(path)) {
+          browserConfig.executablePath = path;
+          console.log(`Found Chrome at: ${path}`);
+          return await puppeteer.launch(browserConfig);
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+    
+    throw new Error('Could not find Chrome executable. Please run: npx puppeteer browsers install chrome');
+  }
 }
 
 app.get("/track", async (req, res) => {
