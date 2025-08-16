@@ -1,6 +1,6 @@
 import express from "express";
-import chromium from "@sparticuz/chrome-aws-lambda";
-import puppeteer from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
+import puppeteer from "puppeteer";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
