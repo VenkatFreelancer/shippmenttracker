@@ -1,34 +1,14 @@
 import express from "express";
-import puppeteer from "puppeteer";
-import { execSync } from "child_process";
+import { chromium } from "playwright";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
-async function ensureChromeInstalled() {
-  try {
-    await puppeteer.launch({ headless: "new" });
-  } catch (error) {
-    if (error.message.includes('Could not find Chrome')) {
-      console.log('Chrome not found, installing...');
-      try {
-        execSync('npx puppeteer browsers install chrome', { stdio: 'inherit' });
-        console.log('Chrome installed successfully');
-      } catch (installError) {
-        console.error('Failed to install Chrome:', installError.message);
-        throw installError;
-      }
-    } else {
-      throw error;
-    }
-  }
-}
-
 async function launchBrowser() {
   const browserConfig = {
-    headless: "new",
+    headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -42,11 +22,12 @@ async function launchBrowser() {
     ]
   };
 
+  // For Render or other cloud platforms
   if (process.env.RENDER || process.env.NODE_ENV === 'production') {
     browserConfig.args.push('--single-process');
   }
 
-  return await puppeteer.launch(browserConfig);
+  return await chromium.launch(browserConfig);
 }
 
 app.get("/track", async (req, res) => {
@@ -57,9 +38,6 @@ app.get("/track", async (req, res) => {
 
   let browser;
   try {
-    // Ensure Chrome is installed before launching
-    await ensureChromeInstalled();
-    
     browser = await launchBrowser();
     const page = await browser.newPage();
 
@@ -68,8 +46,8 @@ app.get("/track", async (req, res) => {
       timeout: 60000,
     });
 
-    await page.type("#ctl10_txtUser", "pharplanet", { delay: 50 });
-    await page.type("#ctl10_txtPassword", "ships0624", { delay: 50 });
+    await page.fill("#ctl10_txtUser", "pharplanet");
+    await page.fill("#ctl10_txtPassword", "ships0624");
 
     await Promise.all([
       page.click("#ctl10_cmdSubmit"),
@@ -79,13 +57,13 @@ app.get("/track", async (req, res) => {
     await page.goto("https://ats.ca/protected/ATSTrack", {
       waitUntil: "domcontentloaded",
     });
-    await page.type("#txtShip", trackingNumber, { delay: 50 });
+    await page.fill("#txtShip", trackingNumber);
 
     await page.evaluate(() => __doPostBack("btnSearchShip", ""));
     await page.waitForTimeout(3000);
 
     let statusText = null;
-    const tableExists = await page.$("#dgPOD");
+    const tableExists = await page.locator("#dgPOD").count() > 0;
 
     if (tableExists) {
       statusText = await page.evaluate(() => {
