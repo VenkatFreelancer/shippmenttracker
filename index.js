@@ -1,14 +1,34 @@
 import express from "express";
 import puppeteer from "puppeteer";
+import { execSync } from "child_process";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+async function ensureChromeInstalled() {
+  try {
+    await puppeteer.launch({ headless: "new" });
+  } catch (error) {
+    if (error.message.includes('Could not find Chrome')) {
+      console.log('Chrome not found, installing...');
+      try {
+        execSync('npx puppeteer browsers install chrome', { stdio: 'inherit' });
+        console.log('Chrome installed successfully');
+      } catch (installError) {
+        console.error('Failed to install Chrome:', installError.message);
+        throw installError;
+      }
+    } else {
+      throw error;
+    }
+  }
+}
+
 async function launchBrowser() {
   const browserConfig = {
-    headless: "new", // Use new headless mode to avoid deprecation warning
+    headless: "new",
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -22,40 +42,11 @@ async function launchBrowser() {
     ]
   };
 
-  // For Render or other cloud platforms
   if (process.env.RENDER || process.env.NODE_ENV === 'production') {
     browserConfig.args.push('--single-process');
   }
 
-  try {
-    return await puppeteer.launch(browserConfig);
-  } catch (error) {
-    console.log('Failed to launch with default config, trying with executablePath...');
-    
-    // Try to find Chrome executable path on the system
-    const possiblePaths = [
-      '/usr/bin/google-chrome-stable',
-      '/usr/bin/google-chrome',
-      '/usr/bin/chromium-browser',
-      '/usr/bin/chromium',
-      '/opt/google/chrome/chrome'
-    ];
-    
-    for (const path of possiblePaths) {
-      try {
-        const fs = await import('fs');
-        if (fs.existsSync(path)) {
-          browserConfig.executablePath = path;
-          console.log(`Found Chrome at: ${path}`);
-          return await puppeteer.launch(browserConfig);
-        }
-      } catch (e) {
-        continue;
-      }
-    }
-    
-    throw new Error('Could not find Chrome executable. Please run: npx puppeteer browsers install chrome');
-  }
+  return await puppeteer.launch(browserConfig);
 }
 
 app.get("/track", async (req, res) => {
@@ -66,6 +57,9 @@ app.get("/track", async (req, res) => {
 
   let browser;
   try {
+    // Ensure Chrome is installed before launching
+    await ensureChromeInstalled();
+    
     browser = await launchBrowser();
     const page = await browser.newPage();
 
