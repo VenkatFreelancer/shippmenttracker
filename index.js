@@ -1,6 +1,6 @@
 import express from "express";
 import chromium from "@sparticuz/chromium";
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-core";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -8,36 +8,41 @@ const PORT = process.env.PORT || 10000;
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 async function launchBrowser() {
-  let executablePath;
-
-  // Render (or any non-Lambda Linux) → use chromium binary from apt
-  if (process.env.RENDER) {
-    executablePath = "/usr/bin/chromium-browser"; // Installed via apt on Render
-  } else if (typeof chromium.executablePath === "function") {
-    executablePath = await chromium.executablePath();
-  } else if (chromium.executablePath instanceof Promise) {
-    executablePath = await chromium.executablePath;
-  } else {
-    executablePath = chromium.executablePath;
-  }
-
-  // Local development fallback
-  if (!executablePath) {
-    if (process.platform === "win32") {
-      executablePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-    } else if (process.platform === "darwin") {
-      executablePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-    } else {
-      executablePath = "/usr/bin/google-chrome";
-    }
-  }
-
-  return await puppeteer.launch({
+  let browserConfig = {
     args: chromium.args,
     defaultViewport: chromium.defaultViewport,
-    executablePath,
     headless: chromium.headless,
-  });
+  };
+
+  // Render environment
+  if (process.env.RENDER) {
+    browserConfig.executablePath = "/usr/bin/chromium-browser";
+    browserConfig.args = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
+      '--disable-extensions'
+    ];
+  } 
+  // AWS Lambda or similar cloud environment
+  else if (await chromium.executablePath) {
+    browserConfig.executablePath = await chromium.executablePath;
+  }
+  // Local development
+  else {
+    if (process.platform === "win32") {
+      browserConfig.executablePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+    } else if (process.platform === "darwin") {
+      browserConfig.executablePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    } else {
+      browserConfig.executablePath = "/usr/bin/google-chrome";
+    }
+    browserConfig.args = ['--no-sandbox', '--disable-setuid-sandbox'];
+  }
+
+  return await puppeteer.launch(browserConfig);
 }
 
 app.get("/track", async (req, res) => {
