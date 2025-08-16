@@ -8,7 +8,7 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 
 async function launchBrowser() {
   const browserConfig = {
-    headless: true,
+    headless: "new", // Use new headless mode to avoid deprecation warning
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
