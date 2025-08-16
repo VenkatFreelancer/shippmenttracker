@@ -1,6 +1,5 @@
 import express from "express";
-import chromium from "@sparticuz/chromium";
-import puppeteer from "puppeteer-core";
+import puppeteer from "puppeteer";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -8,38 +7,24 @@ const PORT = process.env.PORT || 10000;
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 async function launchBrowser() {
-  let browserConfig = {
-    args: chromium.args,
-    defaultViewport: chromium.defaultViewport,
-    headless: chromium.headless,
-  };
-
-  // Render environment
-  if (process.env.RENDER) {
-    browserConfig.executablePath = "/usr/bin/chromium-browser";
-    browserConfig.args = [
+  const browserConfig = {
+    headless: true,
+    args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
       '--no-first-run',
-      '--disable-extensions'
-    ];
-  } 
-  // AWS Lambda or similar cloud environment
-  else if (await chromium.executablePath) {
-    browserConfig.executablePath = await chromium.executablePath;
-  }
-  // Local development
-  else {
-    if (process.platform === "win32") {
-      browserConfig.executablePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-    } else if (process.platform === "darwin") {
-      browserConfig.executablePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-    } else {
-      browserConfig.executablePath = "/usr/bin/google-chrome";
-    }
-    browserConfig.args = ['--no-sandbox', '--disable-setuid-sandbox'];
+      '--disable-extensions',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding'
+    ]
+  };
+
+  // For Render or other cloud platforms
+  if (process.env.RENDER || process.env.NODE_ENV === 'production') {
+    browserConfig.args.push('--single-process');
   }
 
   return await puppeteer.launch(browserConfig);
