@@ -12,7 +12,7 @@ async function launchBrowser() {
 
   // Render (or any non-Lambda Linux) → use chromium binary from apt
   if (process.env.RENDER) {
-    executablePath = "/user/bin/chromium-browser"; // Installed via apt on Render
+    executablePath = "/usr/bin/chromium-browser"; // Installed via apt on Render
   } else if (typeof chromium.executablePath === "function") {
     executablePath = await chromium.executablePath();
   } else if (chromium.executablePath instanceof Promise) {
