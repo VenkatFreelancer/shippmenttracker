@@ -1,6 +1,5 @@
 import express from "express";
-import chromium from "chrome-aws-lambda";
-import puppeteer from "puppeteer-core";
+import puppeteer from "puppeteer";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -8,13 +7,33 @@ const PORT = process.env.PORT || 10000;
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 async function launchBrowser() {
-  return await puppeteer.launch({
-    args: chromium.args,
-    defaultViewport: chromium.defaultViewport,
-    executablePath: await chromium.executablePath,
-    headless: chromium.headless,
-    ignoreHTTPSErrors: true,
-  });
+  const browserConfig = {
+    headless: "new",
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
+      '--disable-extensions',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-web-security',
+      '--disable-features=VizDisplayCompositor'
+    ]
+  };
+
+  // Use system Chrome if available (Docker environment)
+  try {
+    return await puppeteer.launch({
+      ...browserConfig,
+      executablePath: '/usr/bin/google-chrome-stable'
+    });
+  } catch (error) {
+    console.log('System Chrome not found, trying Puppeteer bundled Chrome...');
+    return await puppeteer.launch(browserConfig);
+  }
 }
 
 app.get("/track", async (req, res) => {
@@ -27,6 +46,9 @@ app.get("/track", async (req, res) => {
   try {
     browser = await launchBrowser();
     const page = await browser.newPage();
+
+    // Set user agent to avoid detection
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
 
     await page.goto("https://ats.ca/Login?ReturnUrl=%2fprotected%2fATSTrack", {
       waitUntil: "domcontentloaded",
