@@ -25,15 +25,18 @@ async function launchBrowser() {
   };
 
   // Use system Chrome if available (Docker environment)
-  try {
-    return await puppeteer.launch({
-      ...browserConfig,
-      executablePath: '/usr/bin/google-chrome-stable'
-    });
-  } catch (error) {
-    console.log('System Chrome not found, trying Puppeteer bundled Chrome...');
-    return await puppeteer.launch(browserConfig);
+  if (process.env.RENDER || process.platform === 'linux') {
+    try {
+      return await puppeteer.launch({
+        ...browserConfig,
+        executablePath: '/usr/bin/google-chrome-stable'
+      });
+    } catch (error) {
+      console.log('System Chrome not found, trying Puppeteer bundled Chrome...');
+    }
   }
+  
+  return await puppeteer.launch(browserConfig);
 }
 
 app.get("/track", async (req, res) => {
