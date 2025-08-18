@@ -72,7 +72,16 @@ app.get("/track", async (req, res) => {
     await page.type("#txtShip", trackingNumber, { delay: 50 });
 
     await page.evaluate(() => __doPostBack("btnSearchShip", ""));
-    await page.waitForTimeout(3000);
+    
+    // Replaced page.waitForTimeout(3000) with a more reliable wait
+    // Wait for either the table to appear or a reasonable timeout
+    try {
+      await page.waitForSelector("#dgPOD", { timeout: 5000 });
+    } catch (timeoutError) {
+      // If table doesn't appear within 5 seconds, continue anyway
+      // This handles cases where the search returns no results
+      console.log('Table not found within timeout, continuing...');
+    }
 
     let statusText = null;
     const tableExists = await page.$("#dgPOD");
