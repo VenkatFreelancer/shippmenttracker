@@ -1,28 +1,51 @@
-FROM node:18-slim
+# Use Node.js 18 Alpine for smaller image size
+FROM node:18-alpine
 
-# Install Chrome dependencies
-RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
+# Install Chrome dependencies for Alpine
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
     ca-certificates \
-    procps \
-    libxss1 \
-    && rm -rf /var/lib/apt/lists/*
+    ttf-freefont \
+    && rm -rf /var/cache/apk/*
 
-# Install Chrome
-RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update \
-    && apt-get install -y google-chrome-stable \
-    && rm -rf /var/lib/apt/lists/*
+# Create app directory
+WORKDIR /usr/src/app
 
-WORKDIR /app
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001
 
+# Copy package files
 COPY package*.json ./
-RUN npm install
 
+# Install dependencies
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy source code
 COPY . .
 
+# Change ownership to non-root user
+RUN chown -R nextjs:nodejs /usr/src/app
+
+# Switch to non-root user
+USER nextjs
+
+# Expose port
 EXPOSE 10000
 
-CMD ["npm", "start"]
+# Set environment variables
+ENV NODE_ENV=production
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV CHROME_BIN=/usr/bin/chromium-browser
+ENV CHROME_PATH=/usr/bin/chromium-browser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD node healthcheck.js
+
+# Start the application
+CMD ["node", "index.js"]

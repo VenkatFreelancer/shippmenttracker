@@ -1,14 +1,18 @@
 {
-  "name": "shippment-tracker",
+  "name": "puppeteer-tracking-api",
   "version": "1.0.0",
-  "description": "Shipment tracking API",
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "node index.js"
   },
   "dependencies": {
-    "express": "^4.21.2",
-    "puppeteer": "^24.16.2"
+    "express": "^4.18.2",
+    "puppeteer": "^22.0.0"
+  },
+  "engines": {
+    "node": "18.x",
+    "npm": "9.x"
   }
 }
