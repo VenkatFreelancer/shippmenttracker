@@ -1,5 +1,5 @@
 {
-  "name": "puppeteer-tracking-api",
+  "name": "browserless-tracking-api",
   "version": "1.0.0",
   "type": "module",
   "main": "index.js",
@@ -8,8 +8,8 @@
     "dev": "node index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "puppeteer": "^24.16.2"
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -1,407 +1,172 @@
+// index.js
 import express from "express";
-import puppeteer from "puppeteer";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-app.use(express.json());
-
-// Global browser instance management
-let globalBrowser = null;
-let browserPromise = null;
-
-// Graceful shutdown handling
-process.on('SIGTERM', async () => {
-  console.log('Received SIGTERM, shutting down gracefully...');
-  await cleanup();
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  console.log('Received SIGINT, shutting down gracefully...');
-  await cleanup();
-  process.exit(0);
-});
-
-async function cleanup() {
-  if (globalBrowser) {
-    try {
-      await globalBrowser.close();
-      console.log('Browser closed successfully');
-    } catch (error) {
-      console.error('Error closing browser:', error);
-    }
-    globalBrowser = null;
-  }
+// --- helpers
+function requiredEnv(name) {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing env var: ${name}`);
+  return v;
 }
 
-async function getBrowser() {
-  if (globalBrowser && globalBrowser.isConnected()) {
-    return globalBrowser;
-  }
+/**
+ * Calls Browserless `/function` API and runs a headless-chrome script remotely.
+ * We pass in our ATS creds + tracking number via "context".
+ */
+async function runInBrowserless({ trackingNumber }) {
+  const token = requiredEnv("BROWSERLESS_TOKEN");
+  const ATS_USER = requiredEnv("ATS_USER");
+  const ATS_PASS = requiredEnv("ATS_PASS");
 
-  // Clean up disconnected browser
-  if (globalBrowser) {
-    try {
-      await globalBrowser.close();
-    } catch (e) {
-      console.log('Cleaned up disconnected browser');
-    }
-    globalBrowser = null;
-  }
+  // This function body runs on Browserless. Keep it self-contained!
+  const code = `
+    // This code runs inside Browserless
+    module.exports = async ({ page, context }) => {
+      const { ATS_USER, ATS_PASS, trackingNumber } = context;
 
-  // If browser creation is already in progress, wait for it
-  if (browserPromise) {
-    return await browserPromise;
-  }
+      // Be conservative with resources/time
+      page.setDefaultTimeout(25000);
+      page.setDefaultNavigationTimeout(25000);
 
-  browserPromise = launchBrowser();
-  try {
-    globalBrowser = await browserPromise;
-    browserPromise = null;
-    return globalBrowser;
-  } catch (error) {
-    browserPromise = null;
-    throw error;
-  }
-}
+      // Block heavy resources
+      await page.setRequestInterception(true);
+      page.on('request', (req) => {
+        const rt = req.resourceType();
+        if (['image','stylesheet','font','media'].includes(rt)) req.abort();
+        else req.continue();
+      });
 
-async function launchBrowser() {
-  console.log('Launching browser in Docker environment...');
-  
-  const browserConfig = {
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--single-process',
-      '--disable-gpu',
-      '--disable-extensions',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--disable-web-security',
-      '--disable-features=VizDisplayCompositor',
-      '--disable-background-networking',
-      '--disable-default-apps',
-      '--disable-sync',
-      '--metrics-recording-only',
-      '--no-crash-upload',
-      '--disable-crash-reporter',
-      '--memory-pressure-off',
-      '--max_old_space_size=512'
-    ]
+      // Login
+      await page.goto('https://ats.ca/Login?ReturnUrl=%2fprotected%2fATSTrack', {
+        waitUntil: 'domcontentloaded'
+      });
+
+      await page.waitForSelector('#ctl10_txtUser', { timeout: 15000 });
+      await page.type('#ctl10_txtUser', ATS_USER, { delay: 25 });
+      await page.type('#ctl10_txtPassword', ATS_PASS, { delay: 25 });
+
+      await Promise.all([
+        page.click('#ctl10_cmdSubmit'),
+        page.waitForNavigation({ waitUntil: 'domcontentloaded' })
+      ]);
+
+      // Track page
+      await page.goto('https://ats.ca/protected/ATSTrack', { waitUntil: 'domcontentloaded' });
+
+      await page.waitForSelector('#txtShip', { timeout: 15000 });
+      await page.evaluate(() => (document.querySelector('#txtShip').value = ''));
+      await page.type('#txtShip', trackingNumber, { delay: 25 });
+
+      // ASP.NET postback
+      await page.evaluate(() => { window.__doPostBack && __doPostBack('btnSearchShip', ''); });
+
+      // Wait a moment for table render
+      await page.waitForTimeout(3000);
+
+      // Try to read table
+      let statusText = null;
+      const table = await page.$('#dgPOD');
+      if (table) {
+        statusText = await page.evaluate(() => {
+          const t = document.querySelector('#dgPOD');
+          if (!t) return null;
+          const headerCells = t.querySelectorAll('tr:first-child td');
+          let statusIdx = -1;
+          headerCells.forEach((cell, i) => {
+            if (cell.textContent.trim().toLowerCase() === 'status') statusIdx = i;
+          });
+          if (statusIdx === -1) return null;
+          const dataRow = t.querySelector('tr:nth-child(2)');
+          if (!dataRow) return null;
+          const cells = dataRow.querySelectorAll('td');
+          return (cells[statusIdx]?.textContent || '').trim() || null;
+        });
+      } else {
+        // Fallback: sometimes the page shows a 2-col table with "trackingNumber | message"
+        statusText = await page.evaluate(() => {
+          const rows = Array.from(document.querySelectorAll('table tr'));
+          for (const row of rows) {
+            const cells = row.querySelectorAll('td');
+            if (cells.length > 1 && /^\\d{9}$/.test(cells[0].innerText.trim())) {
+              return cells[1].innerText.trim();
+            }
+          }
+          return null;
+        });
+      }
+
+      return {
+        status: statusText || 'Not found'
+      };
+    };
+  `;
+
+  const body = {
+    code,
+    context: { ATS_USER, ATS_PASS, trackingNumber }
   };
 
-  try {
-    console.log('Attempting to launch browser with default Puppeteer settings...');
-    
-    // Use Puppeteer's default Chrome (should be pre-installed in official image)
-    const browser = await puppeteer.launch(browserConfig);
-    
-    console.log('Browser launched successfully with default settings');
-    
-    // Test browser connection
-    const page = await browser.newPage();
-    await page.close();
-    
-    return browser;
-  } catch (error) {
-    console.error('Failed to launch browser with default settings:', error.message);
-    
-    // Fallback: try common Chrome paths
-    const chromePaths = [
-      '/usr/bin/google-chrome-stable',
-      '/usr/bin/google-chrome',
-      '/usr/bin/chromium-browser',
-      '/usr/bin/chromium',
-      '/opt/google/chrome/chrome'
-    ];
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000); // 30s hard timeout
 
-    for (const executablePath of chromePaths) {
-      try {
-        console.log(`Attempting fallback launch at: ${executablePath}`);
-        
-        const browser = await puppeteer.launch({
-          ...browserConfig,
-          executablePath
-        });
-        
-        console.log(`Browser launched successfully at: ${executablePath}`);
-        
-        // Test browser connection
-        const page = await browser.newPage();
-        await page.close();
-        
-        return browser;
-      } catch (fallbackError) {
-        console.log(`Failed fallback at ${executablePath}: ${fallbackError.message}`);
-        continue;
-      }
-    }
-    
-    throw new Error('No Chrome/Chromium installation found');
+  const res = await fetch(`https://chrome.browserless.io/function?token=${token}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: controller.signal
+  }).catch((e) => {
+    throw new Error(`Browserless request failed: ${e.message}`);
+  });
+
+  clearTimeout(timeout);
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Browserless error ${res.status}: ${text || res.statusText}`);
   }
+
+  // Browserless returns JSON with the value you `return`ed as { data: ... }
+  const json = await res.json();
+  // Defensive: Browserless commonly returns { data, logs, ... }
+  return json?.data || json;
 }
 
+// --- routes
+
 app.get("/health", (_req, res) => {
-  res.json({ 
-    ok: true, 
-    timestamp: new Date().toISOString(),
-    env: process.env.NODE_ENV,
-    pid: process.pid
-  });
+  res.json({ ok: true, ts: new Date().toISOString() });
 });
 
 app.get("/track", async (req, res) => {
-  const trackingNumber = req.query.trackingNumber;
+  const trackingNumber = String(req.query.trackingNumber || "").trim();
+
   if (!trackingNumber) {
     return res.status(400).json({ error: "Missing trackingNumber parameter" });
   }
 
-  let page = null;
-  const startTime = Date.now();
-  const requestId = Math.random().toString(36).substring(7);
-  
+  const started = Date.now();
   try {
-    console.log(`[${requestId}] Starting tracking for: ${trackingNumber}`);
-    
-    const browser = await getBrowser();
-    page = await browser.newPage();
-
-    // Set resource limits for Docker
-    await page.setDefaultTimeout(25000);
-    await page.setDefaultNavigationTimeout(25000);
-    
-    // Block unnecessary resources to save memory in Docker
-    await page.setRequestInterception(true);
-    page.on('request', (req) => {
-      const resourceType = req.resourceType();
-      if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
-        req.abort();
-      } else {
-        req.continue();
-      }
-    });
-
-    // Reduced viewport for Docker memory constraints
-    await page.setViewport({ width: 1024, height: 768 });
-    await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
-
-    console.log(`[${requestId}] Navigating to login page...`);
-    await page.goto("https://ats.ca/Login?ReturnUrl=%2fprotected%2fATSTrack", {
-      waitUntil: "domcontentloaded",
-      timeout: 25000,
-    });
-
-    console.log(`[${requestId}] Entering credentials...`);
-    await page.waitForSelector("#ctl10_txtUser", { timeout: 10000 });
-    await page.type("#ctl10_txtUser", "pharplanet", { delay: 25 });
-    await page.type("#ctl10_txtPassword", "ships0624", { delay: 25 });
-
-    console.log(`[${requestId}] Logging in...`);
-    await Promise.all([
-      page.click("#ctl10_cmdSubmit"),
-      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 25000 }),
-    ]);
-
-    console.log(`[${requestId}] Navigating to tracking page...`);
-    await page.goto("https://ats.ca/protected/ATSTrack", {
-      waitUntil: "domcontentloaded",
-      timeout: 25000,
-    });
-    
-    console.log(`[${requestId}] Entering tracking number...`);
-    await page.waitForSelector("#txtShip", { timeout: 10000 });
-    
-    // Clear field and enter tracking number
-    await page.evaluate(() => document.querySelector("#txtShip").value = "");
-    await page.type("#txtShip", trackingNumber, { delay: 25 });
-
-    console.log(`[${requestId}] Searching...`);
-    await page.evaluate(() => __doPostBack("btnSearchShip", ""));
-    
-    // Wait for results
-    console.log(`[${requestId}] Waiting for results...`);
-    let statusText = null;
-    
-    try {
-      await page.waitForSelector("#dgPOD", { timeout: 8000 });
-      console.log(`[${requestId}] Results table found`);
-      
-      statusText = await page.evaluate(() => {
-        const table = document.querySelector("#dgPOD");
-        if (!table) return null;
-        
-        const headerCells = table.querySelectorAll("tr:first-child td");
-        let statusColIndex = Array.from(headerCells).findIndex(
-          cell => cell.textContent.trim().toLowerCase() === "status"
-        );
-        
-        if (statusColIndex === -1) return null;
-        
-        const dataRow = table.querySelector("tr:nth-child(2)");
-        if (!dataRow) return null;
-        
-        const statusCell = dataRow.querySelectorAll("td")[statusColIndex];
-        return statusCell?.textContent.trim() || null;
-      });
-    } catch (timeoutError) {
-      console.log(`[${requestId}] No results found within timeout`);
-    }
-
-    // Close the page immediately
-    await page.close();
-    page = null;
-    
-    const duration = Date.now() - startTime;
-    const result = statusText || "Not found";
-    
-    console.log(`[${requestId}] Completed in ${duration}ms: ${result}`);
-    
-    res.json({ 
-      trackingNumber, 
-      status: result,
-      duration: `${duration}ms`,
-      requestId
-    });
-
-  } catch (err) {
-    console.error(`[${requestId}] Error:`, err.message);
-    
-    if (page) {
-      try {
-        await page.close();
-      } catch (closeErr) {
-        console.error(`[${requestId}] Error closing page:`, closeErr.message);
-      }
-    }
-    
-    res.status(500).json({ 
-      error: err.message,
+    const data = await runInBrowserless({ trackingNumber });
+    res.json({
       trackingNumber,
-      requestId,
-      timestamp: new Date().toISOString()
+      status: data.status || "Not found",
+      durationMs: Date.now() - started
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: err.message || String(err),
+      trackingNumber,
+      durationMs: Date.now() - started
     });
   }
 });
 
-// Browser detection endpoint
-app.get("/detect-browser", async (req, res) => {
-  const fs = await import('fs');
-  
-  const chromePaths = [
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/chromium',
-    '/usr/local/bin/chromium',
-    '/opt/google/chrome/chrome'
-  ];
-
-  const detectedPaths = [];
-  
-  for (const path of chromePaths) {
-    try {
-      if (fs.existsSync(path)) {
-        detectedPaths.push({
-          path,
-          exists: true
-        });
-      } else {
-        detectedPaths.push({
-          path,
-          exists: false
-        });
-      }
-    } catch (error) {
-      detectedPaths.push({
-        path,
-        exists: false,
-        error: error.message
-      });
-    }
-  }
-
-  res.json({
-    environment: process.env.NODE_ENV,
-    puppeteerExecutablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-    detectedPaths,
-    platform: process.platform,
-    arch: process.arch
-  });
-});
-
-// Docker health check endpoint
-app.get("/browser-test", async (req, res) => {
-  let page = null;
-  try {
-    const browser = await getBrowser();
-    page = await browser.newPage();
-    
-    await page.goto('data:text/html,<html><body><h1>Test</h1></body></html>', { 
-      waitUntil: 'domcontentloaded',
-      timeout: 10000 
-    });
-    
-    const title = await page.$eval('h1', el => el.textContent);
-    await page.close();
-    
-    res.json({ 
-      success: true, 
-      title,
-      message: "Browser test successful in Docker",
-      browserConnected: browser.isConnected()
-    });
-  } catch (error) {
-    if (page) {
-      try {
-        await page.close();
-      } catch (e) {
-        console.error('Error closing test page:', e.message);
-      }
-    }
-    res.status(500).json({ 
-      success: false, 
-      error: error.message,
-      message: "Browser test failed in Docker" 
-    });
-  }
-});
-
-// Detailed status for Docker monitoring
-app.get("/status", async (req, res) => {
-  const memUsage = process.memoryUsage();
-  res.json({
-    status: "running",
-    environment: "docker",
-    uptime: `${Math.floor(process.uptime())}s`,
-    memory: {
-      rss: `${Math.round(memUsage.rss / 1024 / 1024)}MB`,
-      heapUsed: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`,
-      heapTotal: `${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`,
-      external: `${Math.round(memUsage.external / 1024 / 1024)}MB`
-    },
-    browserConnected: globalBrowser?.isConnected() || false,
-    chromeVersion: process.env.PUPPETEER_EXECUTABLE_PATH,
-    timestamp: new Date().toISOString(),
-    pid: process.pid
-  });
-});
-
-// Graceful server shutdown
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Docker API is live at http://0.0.0.0:${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV}`);
-  console.log(`Chrome path: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
-  console.log(`Process ID: ${process.pid}`);
-});
-
-server.on('close', async () => {
-  console.log('HTTP server closed, cleaning up...');
-  await cleanup();
+// --- server
+app.listen(PORT, () => {
+  console.log(`✅ API is live at http://0.0.0.0:${PORT}`);
 });
