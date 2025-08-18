@@ -67,7 +67,7 @@ async function getBrowser() {
 }
 
 async function launchBrowser() {
-  console.log('Launching browser for Docker environment...');
+  console.log('Launching browser in Docker environment...');
   
   const browserConfig = {
     headless: true,
@@ -78,7 +78,7 @@ async function launchBrowser() {
       '--disable-accelerated-2d-canvas',
       '--no-first-run',
       '--no-zygote',
-      '--single-process', // Critical for Docker
+      '--single-process',
       '--disable-gpu',
       '--disable-extensions',
       '--disable-background-timer-throttling',
@@ -97,46 +97,13 @@ async function launchBrowser() {
     ]
   };
 
-  // Try different Chrome/Chromium paths
-  const chromePaths = [
-    process.env.PUPPETEER_EXECUTABLE_PATH,
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/chromium',
-    '/usr/local/bin/chromium',
-    '/opt/google/chrome/chrome'
-  ].filter(Boolean); // Remove undefined values
-
-  console.log('Trying Chrome paths:', chromePaths);
-
-  for (const executablePath of chromePaths) {
-    try {
-      console.log(`Attempting to launch browser at: ${executablePath}`);
-      
-      const browser = await puppeteer.launch({
-        ...browserConfig,
-        executablePath
-      });
-      
-      console.log(`Browser launched successfully at: ${executablePath}`);
-      
-      // Test browser connection
-      const page = await browser.newPage();
-      await page.close();
-      
-      return browser;
-    } catch (error) {
-      console.log(`Failed to launch browser at ${executablePath}: ${error.message}`);
-      continue;
-    }
-  }
-
-  // If all executable paths fail, try without specifying executablePath (use bundled Chromium)
-  console.log('All Chrome paths failed, trying bundled Chromium...');
   try {
+    console.log('Attempting to launch browser with default Puppeteer settings...');
+    
+    // Use Puppeteer's default Chrome (should be pre-installed in official image)
     const browser = await puppeteer.launch(browserConfig);
-    console.log('Browser launched successfully with bundled Chromium');
+    
+    console.log('Browser launched successfully with default settings');
     
     // Test browser connection
     const page = await browser.newPage();
@@ -144,8 +111,40 @@ async function launchBrowser() {
     
     return browser;
   } catch (error) {
-    console.error('Failed to launch browser with bundled Chromium:', error);
-    throw error;
+    console.error('Failed to launch browser with default settings:', error.message);
+    
+    // Fallback: try common Chrome paths
+    const chromePaths = [
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+      '/opt/google/chrome/chrome'
+    ];
+
+    for (const executablePath of chromePaths) {
+      try {
+        console.log(`Attempting fallback launch at: ${executablePath}`);
+        
+        const browser = await puppeteer.launch({
+          ...browserConfig,
+          executablePath
+        });
+        
+        console.log(`Browser launched successfully at: ${executablePath}`);
+        
+        // Test browser connection
+        const page = await browser.newPage();
+        await page.close();
+        
+        return browser;
+      } catch (fallbackError) {
+        console.log(`Failed fallback at ${executablePath}: ${fallbackError.message}`);
+        continue;
+      }
+    }
+    
+    throw new Error('No Chrome/Chromium installation found');
   }
 }
 

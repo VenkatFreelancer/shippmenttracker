@@ -5,16 +5,13 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "node index.js",
-    "postinstall": "echo 'Dependencies installed successfully'"
+    "dev": "node index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "puppeteer": "^22.0.0"
+    "puppeteer": "22.0.0"
   },
   "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=9.0.0"
-  },
-  "os": ["linux", "darwin", "win32"]
+    "node": ">=18.0.0"
+  }
 }
