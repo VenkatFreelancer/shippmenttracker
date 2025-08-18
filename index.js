@@ -94,13 +94,49 @@ async function launchBrowser() {
       '--disable-crash-reporter',
       '--memory-pressure-off',
       '--max_old_space_size=512'
-    ],
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser'
+    ]
   };
 
+  // Try different Chrome/Chromium paths
+  const chromePaths = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/usr/local/bin/chromium',
+    '/opt/google/chrome/chrome'
+  ].filter(Boolean); // Remove undefined values
+
+  console.log('Trying Chrome paths:', chromePaths);
+
+  for (const executablePath of chromePaths) {
+    try {
+      console.log(`Attempting to launch browser at: ${executablePath}`);
+      
+      const browser = await puppeteer.launch({
+        ...browserConfig,
+        executablePath
+      });
+      
+      console.log(`Browser launched successfully at: ${executablePath}`);
+      
+      // Test browser connection
+      const page = await browser.newPage();
+      await page.close();
+      
+      return browser;
+    } catch (error) {
+      console.log(`Failed to launch browser at ${executablePath}: ${error.message}`);
+      continue;
+    }
+  }
+
+  // If all executable paths fail, try without specifying executablePath (use bundled Chromium)
+  console.log('All Chrome paths failed, trying bundled Chromium...');
   try {
     const browser = await puppeteer.launch(browserConfig);
-    console.log('Browser launched successfully in Docker');
+    console.log('Browser launched successfully with bundled Chromium');
     
     // Test browser connection
     const page = await browser.newPage();
@@ -108,7 +144,7 @@ async function launchBrowser() {
     
     return browser;
   } catch (error) {
-    console.error('Failed to launch browser:', error);
+    console.error('Failed to launch browser with bundled Chromium:', error);
     throw error;
   }
 }
@@ -253,6 +289,52 @@ app.get("/track", async (req, res) => {
       timestamp: new Date().toISOString()
     });
   }
+});
+
+// Browser detection endpoint
+app.get("/detect-browser", async (req, res) => {
+  const fs = await import('fs');
+  
+  const chromePaths = [
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/usr/local/bin/chromium',
+    '/opt/google/chrome/chrome'
+  ];
+
+  const detectedPaths = [];
+  
+  for (const path of chromePaths) {
+    try {
+      if (fs.existsSync(path)) {
+        detectedPaths.push({
+          path,
+          exists: true
+        });
+      } else {
+        detectedPaths.push({
+          path,
+          exists: false
+        });
+      }
+    } catch (error) {
+      detectedPaths.push({
+        path,
+        exists: false,
+        error: error.message
+      });
+    }
+  }
+
+  res.json({
+    environment: process.env.NODE_ENV,
+    puppeteerExecutablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+    detectedPaths,
+    platform: process.platform,
+    arch: process.arch
+  });
 });
 
 // Docker health check endpoint

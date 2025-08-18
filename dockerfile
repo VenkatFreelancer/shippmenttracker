@@ -11,6 +11,12 @@ RUN apk add --no-cache \
     ttf-freefont \
     && rm -rf /var/cache/apk/*
 
+# Create symbolic link for chromium-browser
+RUN ln -s /usr/bin/chromium /usr/bin/chromium-browser
+
+# Verify Chrome installation
+RUN chromium --version || chromium-browser --version
+
 # Create app directory
 WORKDIR /usr/src/app
 
@@ -37,12 +43,12 @@ USER nextjs
 # Expose port
 EXPOSE 10000
 
-# Set environment variables
+# Set environment variables - use the correct path for Alpine
 ENV NODE_ENV=production
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-ENV CHROME_BIN=/usr/bin/chromium-browser
-ENV CHROME_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV CHROME_BIN=/usr/bin/chromium
+ENV CHROME_PATH=/usr/bin/chromium
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
