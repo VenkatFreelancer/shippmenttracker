@@ -2,6 +2,7 @@
 import express from "express";
 import dotenv from "dotenv";
 
+
 dotenv.config();
 
 const app = express();
@@ -13,6 +14,12 @@ function requiredEnv(name) {
   if (!v) throw new Error(`Missing env var: ${name}`);
   return v;
 }
+
+console.log("Env loaded:", {
+  token: process.env.BROWSERLESS_TOKEN ? "✅ exists" : "❌ missing",
+  user: process.env.ATS_USER,
+});
+
 
 /**
  * Calls Browserless `/function` API and runs a headless-chrome script remotely.
