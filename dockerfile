@@ -1,33 +1,29 @@
-# Use official Puppeteer image which includes Chrome
-FROM ghcr.io/puppeteer/puppeteer:22.0.0
+# Use the official Puppeteer base image
+FROM ghcr.io/puppeteer/puppeteer:21.6.1
 
-# Switch to root to set up the app
+# Switch to root for setup
 USER root
-
-# Create app directory
-WORKDIR /usr/src/app
 
 # Copy package files
 COPY package*.json ./
 
-# Install app dependencies
-RUN npm ci --omit=dev --no-audit --no-fund
+# Install dependencies using npm install (works without package-lock.json)
+RUN npm install --production --no-audit --no-fund
 
-# Copy app source code
+# Copy app source
 COPY . .
 
-# Create downloads directory and set permissions
-RUN mkdir -p /usr/src/app/downloads && \
-    chown -R pptruser:pptruser /usr/src/app
+# Create app directory and set permissions
+RUN mkdir -p /home/pptruser/app && \
+    cp -r . /home/pptruser/app && \
+    chown -R pptruser:pptruser /home/pptruser/app
 
-# Switch back to non-root user
+# Switch to pptruser and set working directory
 USER pptruser
+WORKDIR /home/pptruser/app
 
 # Expose port
 EXPOSE 10000
 
-# Environment variables
-ENV NODE_ENV=production
-
-# Start the application
+# Start the app
 CMD ["node", "index.js"]
