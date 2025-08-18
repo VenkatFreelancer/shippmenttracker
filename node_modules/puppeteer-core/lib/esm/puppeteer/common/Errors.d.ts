@@ -12,7 +12,7 @@ export declare class PuppeteerError extends Error {
     /**
      * @internal
      */
-    constructor(message?: string);
+    constructor(message?: string, options?: ErrorOptions);
     /**
      * @internal
      */
@@ -29,6 +29,13 @@ export declare class PuppeteerError extends Error {
  * @public
  */
 export declare class TimeoutError extends PuppeteerError {
+}
+/**
+ * TouchError is thrown when an attempt is made to move or end a touch that does
+ * not exist.
+ * @public
+ */
+export declare class TouchError extends PuppeteerError {
 }
 /**
  * ProtocolError is emitted whenever there is an error from the protocol.
