@@ -14,15 +14,16 @@ RUN apk add --no-cache \
 # Create app directory
 WORKDIR /usr/src/app
 
+# Copy package files first for better Docker layer caching
+COPY package*.json ./
+
+# Install dependencies with better error handling
+RUN npm ci --omit=dev --no-audit --no-fund && \
+    npm cache clean --force
+
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nextjs -u 1001
-
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies
-RUN npm ci --only=production && npm cache clean --force
 
 # Copy source code
 COPY . .
@@ -45,7 +46,7 @@ ENV CHROME_PATH=/usr/bin/chromium-browser
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node healthcheck.js
+    CMD node healthcheck.js || exit 1
 
 # Start the application
 CMD ["node", "index.js"]
